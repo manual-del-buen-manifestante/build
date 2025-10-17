@@ -108,6 +108,26 @@ body {
 	animation: pulse 2s infinite;
 }
 
+#test-audio-btn {
+	position: fixed;
+	bottom: 20px;
+	right: 20px;
+	background-color: #2196F3;
+	color: white;
+	border: none;
+	padding: 15px 25px;
+	border-radius: 5px;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	font-size: 14px;
+	cursor: pointer;
+	z-index: 99998;
+	display: none;
+}
+
+#test-audio-btn.show {
+	display: block;
+}
+
 @keyframes pulse {
 	0%, 100% { opacity: 0.8; }
 	50% { opacity: 1; }
@@ -166,6 +186,7 @@ body {
 	</div>
 	<div id="ios-start-notice">🎮 Tap to Start 🔊</div>
 	<div id="debug-console"></div>
+	<button id="test-audio-btn">🔊 Test Audio</button>
 
 	<!-- Uncomment to use eruda mobile devtools (alternative to debug console) -->
 	<!-- <script src="https://cdn.jsdelivr.net/npm/eruda"></script> -->
@@ -227,6 +248,48 @@ if (isIOS) {
 	debugLog(`AudioWorklet: ${typeof AudioContext !== 'undefined' && 'audioWorklet' in AudioContext.prototype ? 'YES' : 'NO'}`, 'info');
 	debugLog(`Secure Context: ${window.isSecureContext ? 'YES' : 'NO'}`, 'warn');
 	
+	// Show test audio button
+	const testAudioBtn = document.getElementById('test-audio-btn');
+	testAudioBtn.classList.add('show');
+	testAudioBtn.addEventListener('click', () => {
+		debugLog('Testing audio with beep...', 'info');
+		try {
+			const testCtx = new AudioContext();
+			debugLog(`Test AudioContext state: ${testCtx.state}`, 'info');
+			
+			if (testCtx.state === 'suspended') {
+				testCtx.resume().then(() => {
+					debugLog(`Test context resumed to: ${testCtx.state}`, 'info');
+					playTestBeep(testCtx);
+				});
+			} else {
+				playTestBeep(testCtx);
+			}
+		} catch (e) {
+			debugLog(`Test audio error: ${e}`, 'error');
+		}
+	});
+	
+	function playTestBeep(ctx) {
+		try {
+			const oscillator = ctx.createOscillator();
+			const gainNode = ctx.createGain();
+			
+			oscillator.connect(gainNode);
+			gainNode.connect(ctx.destination);
+			
+			oscillator.frequency.value = 440; // A4 note
+			gainNode.gain.value = 0.3;
+			
+			oscillator.start(ctx.currentTime);
+			oscillator.stop(ctx.currentTime + 0.2);
+			
+			debugLog('Test beep played!', 'info');
+		} catch (e) {
+			debugLog(`Beep error: ${e}`, 'error');
+		}
+	}
+	
 	// Capture errors
 	window.addEventListener('error', (e) => {
 		debugLog(`ERROR: ${e.message}`, 'error');
@@ -249,10 +312,29 @@ if (isIOS) {
 		const PatchedAudioContext = function() {
 			debugLog('Creating AudioContext...', 'info');
 			const ctx = new OriginalAudioContext();
-			debugLog(`AudioContext created, state: ${ctx.state}`, 'info');
+			debugLog(`AudioContext created, state: ${ctx.state}, sampleRate: ${ctx.sampleRate}`, 'info');
 			
 			// Store reference to try resuming later
 			pendingContexts.push(ctx);
+			
+			// Monitor state changes
+			ctx.onstatechange = () => {
+				debugLog(`AudioContext state changed to: ${ctx.state}`, 'info');
+			};
+			
+			// Patch audioWorklet.addModule to log loading
+			if (ctx.audioWorklet) {
+				const originalAddModule = ctx.audioWorklet.addModule.bind(ctx.audioWorklet);
+				ctx.audioWorklet.addModule = function(moduleURL, options) {
+					debugLog(`Loading AudioWorklet: ${moduleURL}`, 'info');
+					return originalAddModule(moduleURL, options).then(() => {
+						debugLog(`AudioWorklet loaded: ${moduleURL}`, 'info');
+					}).catch((err) => {
+						debugLog(`AudioWorklet FAILED: ${moduleURL} - ${err}`, 'error');
+						throw err;
+					});
+				};
+			}
 			
 			// If already interacted, try to resume immediately
 			if (hasUserInteracted && ctx.state === 'suspended') {
