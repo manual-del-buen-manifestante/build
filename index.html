@@ -89,6 +89,29 @@ body {
 	text-align: center;
 	z-index: 1;
 }
+
+#ios-start-notice {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	background-color: rgba(0, 0, 0, 0.8);
+	color: white;
+	padding: 30px 50px;
+	border-radius: 10px;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	font-size: 24px;
+	text-align: center;
+	display: none;
+	z-index: 10000;
+	border: 2px solid #4CAF50;
+	animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+	0%, 100% { opacity: 0.8; }
+	50% { opacity: 1; }
+}
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
@@ -103,14 +126,99 @@ body {
 			Your browser does not support JavaScript.
 		</noscript>
 
-		<div id="status">
-			<img id="status-splash" class="show-image--true fullsize--false use-filter--true" src="index.png" alt="">
-			<progress id="status-progress"></progress>
-			<div id="status-notice"></div>
-		</div>
+	<div id="status">
+		<img id="status-splash" class="show-image--true fullsize--false use-filter--true" src="index.png" alt="">
+		<progress id="status-progress"></progress>
+		<div id="status-notice"></div>
+	</div>
+	<div id="ios-start-notice">🎮 Tap to Start 🔊</div>
 
-		<script src="index.js"></script>
-		<script>
+	<script src="index.js"></script>
+	<script>
+// iOS AudioContext fix: Patch AudioContext constructor to ensure proper initialization
+(function() {
+	const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+	              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+	
+	if (isIOS && typeof AudioContext !== 'undefined') {
+		const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
+		let hasUserInteracted = false;
+		let pendingContexts = [];
+		
+		// Patched AudioContext that handles iOS requirements
+		const PatchedAudioContext = function() {
+			console.log('[iOS Audio] Creating AudioContext...');
+			const ctx = new OriginalAudioContext();
+			
+			// Store reference to try resuming later
+			pendingContexts.push(ctx);
+			
+			// If already interacted, try to resume immediately
+			if (hasUserInteracted && ctx.state === 'suspended') {
+				ctx.resume().then(() => {
+					console.log('[iOS Audio] AudioContext resumed immediately, state:', ctx.state);
+				}).catch(err => {
+					console.warn('[iOS Audio] Failed to resume:', err);
+				});
+			}
+			
+			return ctx;
+		};
+		
+		// Copy prototype and static properties
+		PatchedAudioContext.prototype = OriginalAudioContext.prototype;
+		for (const prop in OriginalAudioContext) {
+			if (OriginalAudioContext.hasOwnProperty(prop)) {
+				PatchedAudioContext[prop] = OriginalAudioContext[prop];
+			}
+		}
+		
+		// Replace global AudioContext
+		window.AudioContext = PatchedAudioContext;
+		if (window.webkitAudioContext) {
+			window.webkitAudioContext = PatchedAudioContext;
+		}
+		
+		// Function to resume all pending contexts
+		const resumeAllContexts = () => {
+			console.log('[iOS Audio] User interaction detected, resuming contexts...');
+			hasUserInteracted = true;
+			
+			pendingContexts.forEach((ctx, index) => {
+				if (ctx.state !== 'closed') {
+					if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
+						ctx.resume().then(() => {
+							console.log(`[iOS Audio] Context ${index} resumed successfully, state:`, ctx.state);
+						}).catch(err => {
+							console.warn(`[iOS Audio] Failed to resume context ${index}:`, err);
+						});
+					} else {
+						console.log(`[iOS Audio] Context ${index} already in state:`, ctx.state);
+					}
+				}
+			});
+		};
+		
+		// Add interaction listeners
+		const events = ['touchstart', 'touchend', 'click'];
+		const handler = () => {
+			resumeAllContexts();
+			// Keep handlers for a bit to catch delayed context creation
+			setTimeout(() => {
+				events.forEach(event => {
+					document.removeEventListener(event, handler);
+				});
+			}, 3000);
+		};
+		
+		events.forEach(event => {
+			document.addEventListener(event, handler, { passive: true });
+		});
+		
+		console.log('[iOS Audio] AudioContext patch applied');
+	}
+})();
+
 const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":50004288,"index.wasm":43699190},"focusCanvas":true,"gdextensionLibs":[]};
 const GODOT_THREADS_ENABLED = false;
 const engine = new Engine(GODOT_CONFIG);
@@ -199,19 +307,53 @@ const engine = new Engine(GODOT_CONFIG);
 		}
 	} else {
 		setStatusMode('progress');
-		engine.startGame({
-			'onProgress': function (current, total) {
-				if (current > 0 && total > 0) {
-					statusProgress.value = current;
-					statusProgress.max = total;
-				} else {
-					statusProgress.removeAttribute('value');
-					statusProgress.removeAttribute('max');
+		
+		// iOS-specific: Wait for user interaction before starting engine
+		const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+		              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+		
+		const startEngine = () => {
+			engine.startGame({
+				'onProgress': function (current, total) {
+					if (current > 0 && total > 0) {
+						statusProgress.value = current;
+						statusProgress.max = total;
+					} else {
+						statusProgress.removeAttribute('value');
+						statusProgress.removeAttribute('max');
+					}
+				},
+			}).then(() => {
+				setStatusMode('hidden');
+			}, displayFailureNotice);
+		};
+		
+		if (isIOS) {
+			// On iOS, wait for first user interaction
+			console.log('[iOS] Waiting for user interaction to start engine...');
+			const iosNotice = document.getElementById('ios-start-notice');
+			if (iosNotice) {
+				iosNotice.style.display = 'block';
+			}
+			
+			const startEvents = ['touchstart', 'touchend', 'click'];
+			const startHandler = () => {
+				console.log('[iOS] Starting engine after user interaction');
+				if (iosNotice) {
+					iosNotice.style.display = 'none';
 				}
-			},
-		}).then(() => {
-			setStatusMode('hidden');
-		}, displayFailureNotice);
+				startEngine();
+				startEvents.forEach(event => {
+					document.removeEventListener(event, startHandler);
+				});
+			};
+			startEvents.forEach(event => {
+				document.addEventListener(event, startHandler, { once: true, passive: true });
+			});
+		} else {
+			// Non-iOS: Start immediately
+			startEngine();
+		}
 	}
 }());
 		</script>
