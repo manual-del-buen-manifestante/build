@@ -128,6 +128,26 @@ body {
 	display: block;
 }
 
+#test-html5-btn {
+	position: fixed;
+	bottom: 70px;
+	right: 20px;
+	background-color: #FF9800;
+	color: white;
+	border: none;
+	padding: 15px 25px;
+	border-radius: 5px;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	font-size: 14px;
+	cursor: pointer;
+	z-index: 99998;
+	display: none;
+}
+
+#test-html5-btn.show {
+	display: block;
+}
+
 @keyframes pulse {
 	0%, 100% { opacity: 0.8; }
 	50% { opacity: 1; }
@@ -186,7 +206,11 @@ body {
 	</div>
 	<div id="ios-start-notice">🎮 Tap to Start 🔊</div>
 	<div id="debug-console"></div>
-	<button id="test-audio-btn">🔊 Test Audio</button>
+	<button id="test-audio-btn">🔊 Web Audio</button>
+	<button id="test-html5-btn">▶️ HTML5 Audio</button>
+	<audio id="test-audio-element" style="display:none;">
+		<source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" type="audio/wav">
+	</audio>
 
 	<!-- Uncomment to use eruda mobile devtools (alternative to debug console) -->
 	<!-- <script src="https://cdn.jsdelivr.net/npm/eruda"></script> -->
@@ -248,47 +272,145 @@ if (isIOS) {
 	debugLog(`AudioWorklet: ${typeof AudioContext !== 'undefined' && 'audioWorklet' in AudioContext.prototype ? 'YES' : 'NO'}`, 'info');
 	debugLog(`Secure Context: ${window.isSecureContext ? 'YES' : 'NO'}`, 'warn');
 	
+	// Check audio output devices
+	if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+		navigator.mediaDevices.enumerateDevices().then(devices => {
+			const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+			debugLog(`Audio outputs found: ${audioOutputs.length}`, 'info');
+			audioOutputs.forEach((device, i) => {
+				debugLog(`  Output ${i}: ${device.label || 'Unknown'}`, 'info');
+			});
+		}).catch(err => {
+			debugLog(`Could not enumerate devices: ${err}`, 'warn');
+		});
+	}
+	
 	// Show test audio button
 	const testAudioBtn = document.getElementById('test-audio-btn');
 	testAudioBtn.classList.add('show');
+	
+	let testAudioContext = null;
+	let isTestPlaying = false;
+	
 	testAudioBtn.addEventListener('click', () => {
-		debugLog('Testing audio with beep...', 'info');
+		if (isTestPlaying) {
+			debugLog('Already playing test sound...', 'warn');
+			return;
+		}
+		
+		debugLog('=== AUDIO TEST START ===', 'info');
+		debugLog('Check: Ringer switch ON? Volume UP?', 'warn');
+		
 		try {
-			const testCtx = new AudioContext();
-			debugLog(`Test AudioContext state: ${testCtx.state}`, 'info');
+			// Reuse context or create new one
+			if (!testAudioContext || testAudioContext.state === 'closed') {
+				testAudioContext = new AudioContext();
+				debugLog(`Created test AudioContext, state: ${testAudioContext.state}`, 'info');
+			}
 			
-			if (testCtx.state === 'suspended') {
-				testCtx.resume().then(() => {
-					debugLog(`Test context resumed to: ${testCtx.state}`, 'info');
-					playTestBeep(testCtx);
+			const ctx = testAudioContext;
+			
+			const playBeep = () => {
+				try {
+					isTestPlaying = true;
+					const now = ctx.currentTime;
+					
+					// Create oscillator for 1 second beep
+					const oscillator = ctx.createOscillator();
+					const gainNode = ctx.createGain();
+					
+					oscillator.connect(gainNode);
+					gainNode.connect(ctx.destination);
+					
+					oscillator.frequency.value = 440; // A4 note
+					
+					// Envelope: fade in and out
+					gainNode.gain.setValueAtTime(0, now);
+					gainNode.gain.linearRampToValueAtTime(0.5, now + 0.1); // Louder!
+					gainNode.gain.linearRampToValueAtTime(0.5, now + 0.9);
+					gainNode.gain.linearRampToValueAtTime(0, now + 1.0);
+					
+					oscillator.start(now);
+					oscillator.stop(now + 1.0);
+					
+					oscillator.onended = () => {
+						isTestPlaying = false;
+						debugLog('=== BEEP COMPLETE - DID YOU HEAR IT? ===', 'info');
+					};
+					
+					debugLog('Playing 1-second 440Hz beep at 50% volume', 'info');
+					debugLog(`Context: state=${ctx.state}, time=${ctx.currentTime.toFixed(2)}s`, 'info');
+					
+				} catch (e) {
+					isTestPlaying = false;
+					debugLog(`Beep playback error: ${e}`, 'error');
+				}
+			};
+			
+			if (ctx.state === 'suspended') {
+				debugLog('Resuming suspended context...', 'info');
+				ctx.resume().then(() => {
+					debugLog(`Context resumed: ${ctx.state}`, 'info');
+					playBeep();
+				}).catch(err => {
+					isTestPlaying = false;
+					debugLog(`Resume failed: ${err}`, 'error');
 				});
 			} else {
-				playTestBeep(testCtx);
+				debugLog(`Context already ${ctx.state}`, 'info');
+				playBeep();
 			}
+			
 		} catch (e) {
+			isTestPlaying = false;
 			debugLog(`Test audio error: ${e}`, 'error');
 		}
 	});
 	
-	function playTestBeep(ctx) {
-		try {
-			const oscillator = ctx.createOscillator();
-			const gainNode = ctx.createGain();
-			
-			oscillator.connect(gainNode);
-			gainNode.connect(ctx.destination);
-			
-			oscillator.frequency.value = 440; // A4 note
-			gainNode.gain.value = 0.3;
-			
-			oscillator.start(ctx.currentTime);
-			oscillator.stop(ctx.currentTime + 0.2);
-			
-			debugLog('Test beep played!', 'info');
-		} catch (e) {
-			debugLog(`Beep error: ${e}`, 'error');
+	// HTML5 Audio test button
+	const testHtml5Btn = document.getElementById('test-html5-btn');
+	testHtml5Btn.classList.add('show');
+	
+	testHtml5Btn.addEventListener('click', () => {
+		debugLog('=== HTML5 AUDIO TEST ===', 'info');
+		debugLog('Trying to play a simple tone with <audio> element', 'info');
+		
+		// Generate a simple beep using data URI
+		const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+		const duration = 1;
+		const frequency = 440;
+		const sampleRate = audioContext.sampleRate;
+		const numSamples = duration * sampleRate;
+		const buffer = audioContext.createBuffer(1, numSamples, sampleRate);
+		const channelData = buffer.getChannelData(0);
+		
+		// Generate sine wave
+		for (let i = 0; i < numSamples; i++) {
+			channelData[i] = Math.sin(2 * Math.PI * frequency * i / sampleRate) * 0.3;
 		}
-	}
+		
+		// Play using AudioBufferSourceNode
+		if (audioContext.state === 'suspended') {
+			audioContext.resume().then(() => {
+				debugLog(`HTML5 context state: ${audioContext.state}`, 'info');
+				playBuffer();
+			});
+		} else {
+			debugLog(`HTML5 context state: ${audioContext.state}`, 'info');
+			playBuffer();
+		}
+		
+		function playBuffer() {
+			const source = audioContext.createBufferSource();
+			source.buffer = buffer;
+			source.connect(audioContext.destination);
+			source.start(0);
+			source.onended = () => {
+				debugLog('=== HTML5 BEEP COMPLETE - HEARD IT? ===', 'info');
+			};
+			debugLog('Playing HTML5 buffer beep...', 'info');
+		}
+	});
 	
 	// Capture errors
 	window.addEventListener('error', (e) => {
