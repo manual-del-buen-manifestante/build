@@ -112,6 +112,39 @@ body {
 	0%, 100% { opacity: 0.8; }
 	50% { opacity: 1; }
 }
+
+#debug-console {
+	position: fixed;
+	top: 10px;
+	left: 10px;
+	right: 10px;
+	max-height: 300px;
+	background-color: rgba(0, 0, 0, 0.9);
+	color: #0f0;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 10px;
+	overflow-y: auto;
+	z-index: 99999;
+	border: 1px solid #0f0;
+	display: none;
+}
+
+#debug-console.show {
+	display: block;
+}
+
+#debug-console .error {
+	color: #f00;
+}
+
+#debug-console .warn {
+	color: #fa0;
+}
+
+#debug-console .info {
+	color: #0ff;
+}
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
@@ -132,33 +165,94 @@ body {
 		<div id="status-notice"></div>
 	</div>
 	<div id="ios-start-notice">🎮 Tap to Start 🔊</div>
+	<div id="debug-console"></div>
 
+	<!-- Uncomment to use eruda mobile devtools (alternative to debug console) -->
+	<!-- <script src="https://cdn.jsdelivr.net/npm/eruda"></script> -->
+	<!-- <script>eruda.init();</script> -->
+	
 	<script src="index.js"></script>
 	<script>
+// On-screen debug console for iOS debugging
+const debugConsole = document.getElementById('debug-console');
+const debugLog = (message, type = 'info') => {
+	const timestamp = new Date().toLocaleTimeString();
+	const line = document.createElement('div');
+	line.className = type;
+	line.textContent = `[${timestamp}] ${message}`;
+	debugConsole.appendChild(line);
+	debugConsole.scrollTop = debugConsole.scrollHeight;
+	console.log(`[${type.toUpperCase()}] ${message}`);
+};
+
+// Detect iOS and show debug console
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+if (isIOS) {
+	debugConsole.classList.add('show');
+	debugLog('iOS detected - Debug console active', 'info');
+	debugLog(`UA: ${navigator.userAgent}`, 'info');
+	debugLog(`iOS Version: ${navigator.userAgent.match(/OS (\d+)_/)?.[1] || 'unknown'}`, 'info');
+	
+	// Check for required features
+	debugLog(`AudioContext: ${typeof AudioContext !== 'undefined' ? 'YES' : 'NO'}`, 'info');
+	debugLog(`webkitAudioContext: ${typeof webkitAudioContext !== 'undefined' ? 'YES' : 'NO'}`, 'info');
+	debugLog(`AudioWorklet: ${typeof AudioContext !== 'undefined' && 'audioWorklet' in AudioContext.prototype ? 'YES' : 'NO'}`, 'info');
+	debugLog(`Secure Context: ${window.isSecureContext ? 'YES' : 'NO'}`, 'warn');
+	
+	// Capture console methods
+	const originalLog = console.log;
+	const originalWarn = console.warn;
+	const originalError = console.error;
+	
+	console.log = function(...args) {
+		debugLog(args.join(' '), 'info');
+		originalLog.apply(console, args);
+	};
+	console.warn = function(...args) {
+		debugLog(args.join(' '), 'warn');
+		originalWarn.apply(console, args);
+	};
+	console.error = function(...args) {
+		debugLog(args.join(' '), 'error');
+		originalError.apply(console, args);
+	};
+	
+	// Capture errors
+	window.addEventListener('error', (e) => {
+		debugLog(`ERROR: ${e.message} at ${e.filename}:${e.lineno}`, 'error');
+	});
+	
+	window.addEventListener('unhandledrejection', (e) => {
+		debugLog(`UNHANDLED PROMISE: ${e.reason}`, 'error');
+	});
+}
+
 // iOS AudioContext fix: Patch AudioContext constructor to ensure proper initialization
 (function() {
-	const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-	              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-	
 	if (isIOS && typeof AudioContext !== 'undefined') {
+		debugLog('Applying AudioContext patch...', 'info');
 		const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
 		let hasUserInteracted = false;
 		let pendingContexts = [];
 		
 		// Patched AudioContext that handles iOS requirements
 		const PatchedAudioContext = function() {
-			console.log('[iOS Audio] Creating AudioContext...');
+			debugLog('Creating AudioContext...', 'info');
 			const ctx = new OriginalAudioContext();
+			debugLog(`AudioContext created, state: ${ctx.state}`, 'info');
 			
 			// Store reference to try resuming later
 			pendingContexts.push(ctx);
 			
 			// If already interacted, try to resume immediately
 			if (hasUserInteracted && ctx.state === 'suspended') {
+				debugLog('Attempting immediate resume...', 'info');
 				ctx.resume().then(() => {
-					console.log('[iOS Audio] AudioContext resumed immediately, state:', ctx.state);
+					debugLog(`AudioContext resumed immediately, state: ${ctx.state}`, 'info');
 				}).catch(err => {
-					console.warn('[iOS Audio] Failed to resume:', err);
+					debugLog(`Failed to resume: ${err}`, 'error');
 				});
 			}
 			
@@ -181,19 +275,20 @@ body {
 		
 		// Function to resume all pending contexts
 		const resumeAllContexts = () => {
-			console.log('[iOS Audio] User interaction detected, resuming contexts...');
+			debugLog(`User interaction! Resuming ${pendingContexts.length} contexts...`, 'info');
 			hasUserInteracted = true;
 			
 			pendingContexts.forEach((ctx, index) => {
+				debugLog(`Context ${index} state: ${ctx.state}`, 'info');
 				if (ctx.state !== 'closed') {
 					if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
 						ctx.resume().then(() => {
-							console.log(`[iOS Audio] Context ${index} resumed successfully, state:`, ctx.state);
+							debugLog(`Context ${index} resumed! New state: ${ctx.state}`, 'info');
 						}).catch(err => {
-							console.warn(`[iOS Audio] Failed to resume context ${index}:`, err);
+							debugLog(`Context ${index} resume failed: ${err}`, 'error');
 						});
 					} else {
-						console.log(`[iOS Audio] Context ${index} already in state:`, ctx.state);
+						debugLog(`Context ${index} already ${ctx.state}`, 'info');
 					}
 				}
 			});
@@ -215,7 +310,9 @@ body {
 			document.addEventListener(event, handler, { passive: true });
 		});
 		
-		console.log('[iOS Audio] AudioContext patch applied');
+		debugLog('AudioContext patch applied successfully', 'info');
+	} else if (isIOS) {
+		debugLog('WARNING: AudioContext not available!', 'error');
 	}
 })();
 
@@ -330,7 +427,7 @@ const engine = new Engine(GODOT_CONFIG);
 		
 		if (isIOS) {
 			// On iOS, wait for first user interaction
-			console.log('[iOS] Waiting for user interaction to start engine...');
+			debugLog('Waiting for user tap to start engine...', 'info');
 			const iosNotice = document.getElementById('ios-start-notice');
 			if (iosNotice) {
 				iosNotice.style.display = 'block';
@@ -338,7 +435,7 @@ const engine = new Engine(GODOT_CONFIG);
 			
 			const startEvents = ['touchstart', 'touchend', 'click'];
 			const startHandler = () => {
-				console.log('[iOS] Starting engine after user interaction');
+				debugLog('User tapped! Starting engine...', 'info');
 				if (iosNotice) {
 					iosNotice.style.display = 'none';
 				}
