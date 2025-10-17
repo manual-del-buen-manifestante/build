@@ -175,14 +175,40 @@ body {
 	<script>
 // On-screen debug console for iOS debugging
 const debugConsole = document.getElementById('debug-console');
+const originalConsoleLog = console.log;
+const originalConsoleWarn = console.warn;
+const originalConsoleError = console.error;
+let debugLineCount = 0;
+const MAX_DEBUG_LINES = 50; // Limit console to 50 lines
+
 const debugLog = (message, type = 'info') => {
-	const timestamp = new Date().toLocaleTimeString();
-	const line = document.createElement('div');
-	line.className = type;
-	line.textContent = `[${timestamp}] ${message}`;
-	debugConsole.appendChild(line);
-	debugConsole.scrollTop = debugConsole.scrollHeight;
-	console.log(`[${type.toUpperCase()}] ${message}`);
+	try {
+		const timestamp = new Date().toLocaleTimeString();
+		const line = document.createElement('div');
+		line.className = type;
+		line.textContent = `[${timestamp}] ${message}`;
+		debugConsole.appendChild(line);
+		
+		// Remove old lines if too many
+		debugLineCount++;
+		if (debugLineCount > MAX_DEBUG_LINES) {
+			debugConsole.removeChild(debugConsole.firstChild);
+		} else {
+			debugConsole.scrollTop = debugConsole.scrollHeight;
+		}
+		
+		// Use original console methods to avoid recursion
+		if (type === 'error') {
+			originalConsoleError(`[DEBUG] ${message}`);
+		} else if (type === 'warn') {
+			originalConsoleWarn(`[DEBUG] ${message}`);
+		} else {
+			originalConsoleLog(`[DEBUG] ${message}`);
+		}
+	} catch (e) {
+		// Fail silently if debug logging breaks
+		originalConsoleError('Debug log error:', e);
+	}
 };
 
 // Detect iOS and show debug console
@@ -201,27 +227,9 @@ if (isIOS) {
 	debugLog(`AudioWorklet: ${typeof AudioContext !== 'undefined' && 'audioWorklet' in AudioContext.prototype ? 'YES' : 'NO'}`, 'info');
 	debugLog(`Secure Context: ${window.isSecureContext ? 'YES' : 'NO'}`, 'warn');
 	
-	// Capture console methods
-	const originalLog = console.log;
-	const originalWarn = console.warn;
-	const originalError = console.error;
-	
-	console.log = function(...args) {
-		debugLog(args.join(' '), 'info');
-		originalLog.apply(console, args);
-	};
-	console.warn = function(...args) {
-		debugLog(args.join(' '), 'warn');
-		originalWarn.apply(console, args);
-	};
-	console.error = function(...args) {
-		debugLog(args.join(' '), 'error');
-		originalError.apply(console, args);
-	};
-	
 	// Capture errors
 	window.addEventListener('error', (e) => {
-		debugLog(`ERROR: ${e.message} at ${e.filename}:${e.lineno}`, 'error');
+		debugLog(`ERROR: ${e.message}`, 'error');
 	});
 	
 	window.addEventListener('unhandledrejection', (e) => {
