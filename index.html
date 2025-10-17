@@ -117,26 +117,61 @@ body {
 				try {
 					// Create and hold a 44.1 kHz AudioContext
 					const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
-					console.log("Forced AudioContext sampleRate:", audioCtx.sampleRate);
+					console.log("[AudioFix] Created AudioContext with sampleRate:", audioCtx.sampleRate, "state:", audioCtx.state);
 
+					// Store original AudioContext constructor
+					const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
+					
 					// Monkey-patch constructors so Godot reuses this context
 					window.AudioContext = function() {
+						console.log("[AudioFix] AudioContext constructor intercepted, returning existing context");
 						return audioCtx;
 					};
 					window.webkitAudioContext = function() {
+						console.log("[AudioFix] webkitAudioContext constructor intercepted, returning existing context");
 						return audioCtx;
 					};
 
-					// Unlock on first user interaction (required by iOS)
-					window.addEventListener("touchstart", () => {
-						if (audioCtx.state === "suspended") {
+					// Function to resume audio context
+					function resumeAudioContext() {
+						if (audioCtx.state === "suspended" || audioCtx.state === "interrupted") {
+							console.log("[AudioFix] Attempting to resume AudioContext from state:", audioCtx.state);
 							audioCtx.resume().then(() => {
-								console.log("AudioContext resumed on user touch");
+								console.log("[AudioFix] ✓ AudioContext resumed successfully, state:", audioCtx.state);
+							}).catch((e) => {
+								console.error("[AudioFix] ✗ Failed to resume AudioContext:", e);
 							});
+						} else {
+							console.log("[AudioFix] AudioContext already in state:", audioCtx.state);
 						}
-					}, { once: true });
+					}
+
+					// Listen to multiple user interaction events (without 'once' flag)
+					const events = ['touchstart', 'touchend', 'click', 'keydown'];
+					events.forEach(eventType => {
+						document.addEventListener(eventType, resumeAudioContext, false);
+					});
+
+					// Also try to resume on visibility change (when user returns to tab)
+					document.addEventListener('visibilitychange', () => {
+						if (!document.hidden) {
+							console.log("[AudioFix] Page became visible, checking audio context");
+							resumeAudioContext();
+						}
+					});
+
+					// Periodic check to ensure audio context stays running
+					setInterval(() => {
+						if (audioCtx.state === "suspended" || audioCtx.state === "interrupted") {
+							console.warn("[AudioFix] AudioContext is", audioCtx.state, "- needs user interaction to resume");
+						}
+					}, 2000);
+
+					// Make the context globally accessible for debugging
+					window.__godotAudioContext = audioCtx;
+
 				} catch (e) {
-					console.warn("Could not force AudioContext sampleRate:", e);
+					console.error("[AudioFix] Could not initialize AudioContext fix:", e);
 				}
 			}
 		})();
