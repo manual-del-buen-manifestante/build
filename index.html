@@ -89,9 +89,58 @@ body {
 	text-align: center;
 	z-index: 1;
 }
+
+#audio-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	background-color: rgba(0, 0, 0, 0.85);
+	display: none;
+	justify-content: center;
+	align-items: center;
+	z-index: 9999;
+	flex-direction: column;
+}
+
+#audio-overlay.show {
+	display: flex;
+}
+
+#audio-button {
+	background-color: #4CAF50;
+	border: none;
+	color: white;
+	padding: 20px 40px;
+	text-align: center;
+	text-decoration: none;
+	display: inline-block;
+	font-size: 18px;
+	margin: 4px 2px;
+	cursor: pointer;
+	border-radius: 8px;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+#audio-button:active {
+	background-color: #45a049;
+	transform: scale(0.98);
+}
+
+#audio-message {
+	color: white;
+	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
+	font-size: 16px;
+	margin-bottom: 20px;
+	text-align: center;
+	padding: 0 20px;
+}
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
-		<link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
+<link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
+
 	</head>
 	<body>
 		<canvas id="canvas">
@@ -102,182 +151,233 @@ body {
 			Your browser does not support JavaScript.
 		</noscript>
 
-		<div id="status">
-			<img id="status-splash" class="show-image--true fullsize--false use-filter--true" src="index.png" alt="">
-			<progress id="status-progress"></progress>
-			<div id="status-notice"></div>
-		</div>
+	<div id="status">
+		<img id="status-splash" class="show-image--true fullsize--false use-filter--true" src="index.png" alt="">
+		<progress id="status-progress"></progress>
+		<div id="status-notice"></div>
+	</div>
+
+	<div id="audio-overlay">
+		<div id="audio-message">Tap para activar el audio</div>
+		<button id="audio-button">🔊 Activar Audio</button>
+	</div>
 
 		<script src="index.js"></script>
-
-		<!-- 🔧 BEGIN AudioContext sample rate fix -->
 		<script>
-		(function() {
-			if (typeof AudioContext !== "undefined") {
-				try {
-					// Create and hold a 44.1 kHz AudioContext
-					const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
-					console.log("[AudioFix] Created AudioContext with sampleRate:", audioCtx.sampleRate, "state:", audioCtx.state);
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":50004416,"index.wasm":43699190},"focusCanvas":false,"gdextensionLibs":[]};
+const GODOT_THREADS_ENABLED = false;
+const engine = new Engine(GODOT_CONFIG);
 
-					// Store original AudioContext constructor
-					const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
-					
-					// Monkey-patch constructors so Godot reuses this context
-					window.AudioContext = function() {
-						console.log("[AudioFix] AudioContext constructor intercepted, returning existing context");
-						return audioCtx;
-					};
-					window.webkitAudioContext = function() {
-						console.log("[AudioFix] webkitAudioContext constructor intercepted, returning existing context");
-						return audioCtx;
-					};
+(function () {
+	const statusOverlay = document.getElementById('status');
+	const statusProgress = document.getElementById('status-progress');
+	const statusNotice = document.getElementById('status-notice');
 
-					// Function to resume audio context
-					function resumeAudioContext() {
-						if (audioCtx.state === "suspended" || audioCtx.state === "interrupted") {
-							console.log("[AudioFix] Attempting to resume AudioContext from state:", audioCtx.state);
-							audioCtx.resume().then(() => {
-								console.log("[AudioFix] ✓ AudioContext resumed successfully, state:", audioCtx.state);
-							}).catch((e) => {
-								console.error("[AudioFix] ✗ Failed to resume AudioContext:", e);
-							});
-						} else {
-							console.log("[AudioFix] AudioContext already in state:", audioCtx.state);
-						}
+	let initializing = true;
+	let statusMode = '';
+
+	function setStatusMode(mode) {
+		if (statusMode === mode || !initializing) {
+			return;
+		}
+		if (mode === 'hidden') {
+			statusOverlay.remove();
+			initializing = false;
+			return;
+		}
+		statusOverlay.style.visibility = 'visible';
+		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
+		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
+		statusMode = mode;
+	}
+
+	function setStatusNotice(text) {
+		while (statusNotice.lastChild) {
+			statusNotice.removeChild(statusNotice.lastChild);
+		}
+		const lines = text.split('\n');
+		lines.forEach((line) => {
+			statusNotice.appendChild(document.createTextNode(line));
+			statusNotice.appendChild(document.createElement('br'));
+		});
+	}
+
+	function displayFailureNotice(err) {
+		console.error(err);
+		if (err instanceof Error) {
+			setStatusNotice(err.message);
+		} else if (typeof err === 'string') {
+			setStatusNotice(err);
+		} else {
+			setStatusNotice('An unknown error occurred.');
+		}
+		setStatusMode('notice');
+		initializing = false;
+	}
+
+	const missing = Engine.getMissingFeatures({
+		threads: GODOT_THREADS_ENABLED,
+	});
+
+	if (missing.length !== 0) {
+		if (GODOT_CONFIG['serviceWorker'] && GODOT_CONFIG['ensureCrossOriginIsolationHeaders'] && 'serviceWorker' in navigator) {
+			let serviceWorkerRegistrationPromise;
+			try {
+				serviceWorkerRegistrationPromise = navigator.serviceWorker.getRegistration();
+			} catch (err) {
+				serviceWorkerRegistrationPromise = Promise.reject(new Error('Service worker registration failed.'));
+			}
+			// There's a chance that installing the service worker would fix the issue
+			Promise.race([
+				serviceWorkerRegistrationPromise.then((registration) => {
+					if (registration != null) {
+						return Promise.reject(new Error('Service worker already exists.'));
 					}
-
-					// Listen to multiple user interaction events (without 'once' flag)
-					const events = ['touchstart', 'touchend', 'click', 'keydown'];
-					events.forEach(eventType => {
-						document.addEventListener(eventType, resumeAudioContext, false);
-					});
-
-					// Also try to resume on visibility change (when user returns to tab)
-					document.addEventListener('visibilitychange', () => {
-						if (!document.hidden) {
-							console.log("[AudioFix] Page became visible, checking audio context");
-							resumeAudioContext();
-						}
-					});
-
-					// Periodic check to ensure audio context stays running
-					setInterval(() => {
-						if (audioCtx.state === "suspended" || audioCtx.state === "interrupted") {
-							console.warn("[AudioFix] AudioContext is", audioCtx.state, "- needs user interaction to resume");
-						}
-					}, 2000);
-
-					// Make the context globally accessible for debugging
-					window.__godotAudioContext = audioCtx;
-
-				} catch (e) {
-					console.error("[AudioFix] Could not initialize AudioContext fix:", e);
-				}
-			}
-		})();
-		</script>
-		<!-- 🔧 END AudioContext sample rate fix -->
-
-		<script>
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":50023104,"index.wasm":43699190},"focusCanvas":false,"gdextensionLibs":[]};
-		const GODOT_THREADS_ENABLED = false;
-		const engine = new Engine(GODOT_CONFIG);
-
-		(function () {
-			const statusOverlay = document.getElementById('status');
-			const statusProgress = document.getElementById('status-progress');
-			const statusNotice = document.getElementById('status-notice');
-
-			let initializing = true;
-			let statusMode = '';
-
-			function setStatusMode(mode) {
-				if (statusMode === mode || !initializing) {
-					return;
-				}
-				if (mode === 'hidden') {
-					statusOverlay.remove();
-					initializing = false;
-					return;
-				}
-				statusOverlay.style.visibility = 'visible';
-				statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
-				statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
-				statusMode = mode;
-			}
-
-			function setStatusNotice(text) {
-				while (statusNotice.lastChild) {
-					statusNotice.removeChild(statusNotice.lastChild);
-				}
-				const lines = text.split('\n');
-				lines.forEach((line) => {
-					statusNotice.appendChild(document.createTextNode(line));
-					statusNotice.appendChild(document.createElement('br'));
-				});
-			}
-
-			function displayFailureNotice(err) {
-				console.error(err);
-				if (err instanceof Error) {
-					setStatusNotice(err.message);
-				} else if (typeof err === 'string') {
-					setStatusNotice(err);
-				} else {
-					setStatusNotice('An unknown error occurred.');
-				}
-				setStatusMode('notice');
-				initializing = false;
-			}
-
-			const missing = Engine.getMissingFeatures({
-				threads: GODOT_THREADS_ENABLED,
+					return registration;
+				}).then(() => engine.installServiceWorker()),
+				// For some reason, `getRegistration()` can stall
+				new Promise((resolve) => {
+					setTimeout(() => resolve(), 2000);
+				}),
+			]).then(() => {
+				// Reload if there was no error.
+				window.location.reload();
+			}).catch((err) => {
+				console.error('Error while registering service worker:', err);
 			});
-
-			if (missing.length !== 0) {
-				if (GODOT_CONFIG['serviceWorker'] && GODOT_CONFIG['ensureCrossOriginIsolationHeaders'] && 'serviceWorker' in navigator) {
-					let serviceWorkerRegistrationPromise;
-					try {
-						serviceWorkerRegistrationPromise = navigator.serviceWorker.getRegistration();
-					} catch (err) {
-						serviceWorkerRegistrationPromise = Promise.reject(new Error('Service worker registration failed.'));
+		} else {
+			// Display the message as usual
+			const missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
+			displayFailureNotice(missingMsg + missing.join('\n'));
+		}
+	} else {
+		setStatusMode('progress');
+	// iOS AudioContext fix: Resume audio context on user interaction
+	let audioContextResumed = false;
+	let audioOverlayShown = false;
+	const audioOverlay = document.getElementById('audio-overlay');
+	const audioButton = document.getElementById('audio-button');
+	
+	// Detect iOS
+	const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+	             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+	
+	const resumeAudioContext = () => {
+		if (audioContextResumed) {
+			return;
+		}
+		
+		// Try to find and resume any AudioContext instances
+		if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
+			// Check if engine has audio context
+			const tryResumeContext = (ctx) => {
+				if (ctx && typeof ctx.resume === 'function') {
+					if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
+						ctx.resume().then(() => {
+							console.log('AudioContext resumed successfully, state:', ctx.state);
+							audioContextResumed = true;
+							hideAudioOverlay();
+						}).catch((err) => {
+							console.warn('Failed to resume AudioContext:', err);
+						});
+						return true;
+					} else if (ctx.state === 'running') {
+						console.log('AudioContext already running');
+						audioContextResumed = true;
+						hideAudioOverlay();
+						return true;
 					}
-					Promise.race([
-						serviceWorkerRegistrationPromise.then((registration) => {
-							if (registration != null) {
-								return Promise.reject(new Error('Service worker already exists.'));
-							}
-							return registration;
-						}).then(() => engine.installServiceWorker()),
-						new Promise((resolve) => {
-							setTimeout(() => resolve(), 2000);
-						}),
-					]).then(() => {
-						window.location.reload();
-					}).catch((err) => {
-						console.error('Error while registering service worker:', err);
-					});
-				} else {
-					const missingMsg = 'Error\nThe following features required to run Godot projects on the Web are missing:\n';
-					displayFailureNotice(missingMsg + missing.join('\n'));
 				}
-			} else {
-				setStatusMode('progress');
-				engine.startGame({
-					'onProgress': function (current, total) {
-						if (current > 0 && total > 0) {
-							statusProgress.value = current;
-							statusProgress.max = total;
-						} else {
-							statusProgress.removeAttribute('value');
-							statusProgress.removeAttribute('max');
-						}
-					},
-				}).then(() => {
-					setStatusMode('hidden');
-				}, displayFailureNotice);
+				return false;
+			};
+			
+			// Look for audio context in various possible locations
+			// Godot might store it in different places
+			if (engine && engine.rtenv && engine.rtenv.audioContext) {
+				tryResumeContext(engine.rtenv.audioContext);
 			}
-		}());
+			
+			// Also check window object for any AudioContext instances
+			for (const key in window) {
+				try {
+					if (window[key] && window[key].constructor) {
+						const constructorName = window[key].constructor.name;
+						if (constructorName === 'AudioContext' || constructorName === 'webkitAudioContext') {
+							if (tryResumeContext(window[key])) {
+								break;
+							}
+						}
+					}
+				} catch (e) {
+					// Ignore errors from accessing certain window properties
+				}
+			}
+		}
+	};
+	
+	const showAudioOverlay = () => {
+		if (!audioOverlayShown && isIOS) {
+			audioOverlay.classList.add('show');
+			audioOverlayShown = true;
+		}
+	};
+	
+	const hideAudioOverlay = () => {
+		audioOverlay.classList.remove('show');
+	};
+	
+	// Button click handler
+	audioButton.addEventListener('click', (e) => {
+		e.preventDefault();
+		resumeAudioContext();
+		hideAudioOverlay();
+	});
+	
+	// Add event listeners for user interaction to resume audio
+	const interactionEvents = ['touchstart', 'touchend', 'click', 'keydown'];
+	const handleFirstInteraction = () => {
+		resumeAudioContext();
+		// Keep listeners for a bit in case audio context isn't created yet
+		setTimeout(() => {
+			if (!audioContextResumed && isIOS) {
+				// Show overlay if audio still not working after interactions
+				showAudioOverlay();
+			}
+		}, 1000);
+	};
+	
+	interactionEvents.forEach(event => {
+		document.addEventListener(event, handleFirstInteraction, { passive: true, once: true });
+	});
+
+	engine.startGame({
+		'onProgress': function (current, total) {
+			if (current > 0 && total > 0) {
+				statusProgress.value = current;
+				statusProgress.max = total;
+			} else {
+				statusProgress.removeAttribute('value');
+				statusProgress.removeAttribute('max');
+			}
+		},
+	}).then(() => {
+		setStatusMode('hidden');
+		// Try to resume audio context after game starts
+		setTimeout(() => {
+			resumeAudioContext();
+			// If on iOS and audio still not resumed, show the overlay
+			if (isIOS && !audioContextResumed) {
+				setTimeout(() => {
+					if (!audioContextResumed) {
+						showAudioOverlay();
+					}
+				}, 2000);
+			}
+		}, 100);
+	}, displayFailureNotice);
+	}
+}());
 		</script>
 	</body>
 </html>
+
