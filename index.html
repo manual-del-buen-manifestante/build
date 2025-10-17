@@ -90,12 +90,12 @@ body {
 	z-index: 1;
 }
 
-#ios-start-notice {
-	position: absolute;
+#ios-start-prompt {
+	position: fixed;
 	top: 50%;
 	left: 50%;
 	transform: translate(-50%, -50%);
-	background-color: rgba(0, 0, 0, 0.8);
+	background-color: rgba(0, 0, 0, 0.85);
 	color: white;
 	padding: 30px 50px;
 	border-radius: 10px;
@@ -104,106 +104,8 @@ body {
 	text-align: center;
 	display: none;
 	z-index: 10000;
-	border: 2px solid #4CAF50;
-	animation: pulse 2s infinite;
-}
-
-#test-audio-btn {
-	position: fixed;
-	bottom: 20px;
-	right: 20px;
-	background-color: #2196F3;
-	color: white;
-	border: none;
-	padding: 15px 25px;
-	border-radius: 5px;
-	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
-	font-size: 14px;
 	cursor: pointer;
-	z-index: 99998;
-	display: none;
-}
-
-#test-audio-btn.show {
-	display: block;
-}
-
-#test-html5-btn {
-	position: fixed;
-	bottom: 70px;
-	right: 20px;
-	background-color: #FF9800;
-	color: white;
-	border: none;
-	padding: 15px 25px;
-	border-radius: 5px;
-	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
-	font-size: 14px;
-	cursor: pointer;
-	z-index: 99998;
-	display: none;
-}
-
-#test-html5-btn.show {
-	display: block;
-}
-
-#test-real-audio-btn {
-	position: fixed;
-	bottom: 120px;
-	right: 20px;
-	background-color: #9C27B0;
-	color: white;
-	border: none;
-	padding: 15px 25px;
-	border-radius: 5px;
-	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
-	font-size: 14px;
-	cursor: pointer;
-	z-index: 99998;
-	display: none;
-}
-
-#test-real-audio-btn.show {
-	display: block;
-}
-
-@keyframes pulse {
-	0%, 100% { opacity: 0.8; }
-	50% { opacity: 1; }
-}
-
-#debug-console {
-	position: fixed;
-	top: 10px;
-	left: 10px;
-	right: 10px;
-	max-height: 300px;
-	background-color: rgba(0, 0, 0, 0.9);
-	color: #0f0;
-	font-family: monospace;
-	font-size: 11px;
-	padding: 10px;
-	overflow-y: auto;
-	z-index: 99999;
-	border: 1px solid #0f0;
-	display: none;
-}
-
-#debug-console.show {
-	display: block;
-}
-
-#debug-console .error {
-	color: #f00;
-}
-
-#debug-console .warn {
-	color: #fa0;
-}
-
-#debug-console .info {
-	color: #0ff;
+	user-select: none;
 }
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
@@ -224,231 +126,26 @@ body {
 		<progress id="status-progress"></progress>
 		<div id="status-notice"></div>
 	</div>
-	<div id="ios-start-notice">🎮 Tap to Start 🔊</div>
-	<div id="debug-console"></div>
-	<button id="test-audio-btn">🔊 Web Audio</button>
-	<button id="test-html5-btn">▶️ HTML5 Audio</button>
-	<button id="test-real-audio-btn">📻 Play WAV</button>
-	<audio id="test-audio-element" preload="auto" style="display:none;">
-		<!-- Simple 440Hz sine wave, 1 second, base64 encoded -->
-	</audio>
-
-	<!-- Uncomment to use eruda mobile devtools (alternative to debug console) -->
-	<!-- <script src="https://cdn.jsdelivr.net/npm/eruda"></script> -->
-	<!-- <script>eruda.init();</script> -->
 	
+	<!-- iOS start prompt -->
+	<div id="ios-start-prompt">Tap para activar el audio</div>
+	
+	<!-- Silent audio element to unlock iOS audio -->
+	<audio id="ios-audio-unlock" preload="auto" style="display:none;"></audio>
+
 	<script src="index.js"></script>
 	<script>
-// On-screen debug console for iOS debugging
-const debugConsole = document.getElementById('debug-console');
-const originalConsoleLog = console.log;
-const originalConsoleWarn = console.warn;
-const originalConsoleError = console.error;
-let debugLineCount = 0;
-const MAX_DEBUG_LINES = 50; // Limit console to 50 lines
-
-const debugLog = (message, type = 'info') => {
-	try {
-		const timestamp = new Date().toLocaleTimeString();
-		const line = document.createElement('div');
-		line.className = type;
-		line.textContent = `[${timestamp}] ${message}`;
-		debugConsole.appendChild(line);
-		
-		// Remove old lines if too many
-		debugLineCount++;
-		if (debugLineCount > MAX_DEBUG_LINES) {
-			debugConsole.removeChild(debugConsole.firstChild);
-		} else {
-			debugConsole.scrollTop = debugConsole.scrollHeight;
-		}
-		
-		// Use original console methods to avoid recursion
-		if (type === 'error') {
-			originalConsoleError(`[DEBUG] ${message}`);
-		} else if (type === 'warn') {
-			originalConsoleWarn(`[DEBUG] ${message}`);
-		} else {
-			originalConsoleLog(`[DEBUG] ${message}`);
-		}
-	} catch (e) {
-		// Fail silently if debug logging breaks
-		originalConsoleError('Debug log error:', e);
-	}
-};
-
-// Detect iOS and show debug console
+// Detect iOS
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
+// Create a silent audio file for iOS unlock
 if (isIOS) {
-	debugConsole.classList.add('show');
-	debugLog('iOS detected - Debug console active', 'info');
-	debugLog(`UA: ${navigator.userAgent}`, 'info');
-	debugLog(`iOS Version: ${navigator.userAgent.match(/OS (\d+)_/)?.[1] || 'unknown'}`, 'info');
+	// Create a tiny silent WAV file (0.1 seconds of silence)
+	const sampleRate = 22050;
+	const numSamples = Math.floor(sampleRate * 0.1);
+	const wavData = new Int16Array(numSamples); // All zeros = silence
 	
-	// Check for required features
-	debugLog(`AudioContext: ${typeof AudioContext !== 'undefined' ? 'YES' : 'NO'}`, 'info');
-	debugLog(`webkitAudioContext: ${typeof webkitAudioContext !== 'undefined' ? 'YES' : 'NO'}`, 'info');
-	debugLog(`AudioWorklet: ${typeof AudioContext !== 'undefined' && 'audioWorklet' in AudioContext.prototype ? 'YES' : 'NO'}`, 'info');
-	debugLog(`Secure Context: ${window.isSecureContext ? 'YES' : 'NO'}`, 'warn');
-	
-	// Check audio capabilities (no permission needed for basic check)
-	debugLog('Checking audio capabilities...', 'info');
-	
-	// Show test audio button
-	const testAudioBtn = document.getElementById('test-audio-btn');
-	testAudioBtn.classList.add('show');
-	
-	let testAudioContext = null;
-	let isTestPlaying = false;
-	
-	testAudioBtn.addEventListener('click', () => {
-		if (isTestPlaying) {
-			debugLog('Already playing test sound...', 'warn');
-			return;
-		}
-		
-		debugLog('=== AUDIO TEST START ===', 'info');
-		debugLog('Check: Ringer switch ON? Volume UP?', 'warn');
-		
-		try {
-			// Reuse context or create new one
-			if (!testAudioContext || testAudioContext.state === 'closed') {
-				testAudioContext = new AudioContext();
-				debugLog(`Created test AudioContext, state: ${testAudioContext.state}`, 'info');
-			}
-			
-			const ctx = testAudioContext;
-			
-			const playBeep = () => {
-				try {
-					isTestPlaying = true;
-					const now = ctx.currentTime;
-					
-					// Check destination properties
-					debugLog(`Destination channels: ${ctx.destination.maxChannelCount}`, 'info');
-					debugLog(`Destination numberOfInputs: ${ctx.destination.numberOfInputs}`, 'info');
-					debugLog(`Destination numberOfOutputs: ${ctx.destination.numberOfOutputs}`, 'info');
-					
-					// Create oscillator for 1 second beep
-					const oscillator = ctx.createOscillator();
-					const gainNode = ctx.createGain();
-					
-					oscillator.connect(gainNode);
-					gainNode.connect(ctx.destination);
-					
-					oscillator.frequency.value = 440; // A4 note
-					oscillator.type = 'sine';
-					
-					// Envelope: fade in and out
-					gainNode.gain.setValueAtTime(0, now);
-					gainNode.gain.linearRampToValueAtTime(0.8, now + 0.1); // Even louder!
-					gainNode.gain.linearRampToValueAtTime(0.8, now + 0.9);
-					gainNode.gain.linearRampToValueAtTime(0, now + 1.0);
-					
-					debugLog(`Node connections: Oscillator -> Gain -> Destination`, 'info');
-					
-					oscillator.start(now);
-					oscillator.stop(now + 1.0);
-					
-					oscillator.onended = () => {
-						isTestPlaying = false;
-						debugLog('=== BEEP COMPLETE - DID YOU HEAR IT? ===', 'info');
-						debugLog('If NO sound: Check ringer switch & volume!', 'warn');
-					};
-					
-					debugLog('Playing 1-second 440Hz beep at 80% volume', 'info');
-					debugLog(`Context: state=${ctx.state}, time=${ctx.currentTime.toFixed(2)}s`, 'info');
-					
-				} catch (e) {
-					isTestPlaying = false;
-					debugLog(`Beep playback error: ${e}`, 'error');
-				}
-			};
-			
-			if (ctx.state === 'suspended') {
-				debugLog('Resuming suspended context...', 'info');
-				ctx.resume().then(() => {
-					debugLog(`Context resumed: ${ctx.state}`, 'info');
-					playBeep();
-				}).catch(err => {
-					isTestPlaying = false;
-					debugLog(`Resume failed: ${err}`, 'error');
-				});
-			} else {
-				debugLog(`Context already ${ctx.state}`, 'info');
-				playBeep();
-			}
-			
-		} catch (e) {
-			isTestPlaying = false;
-			debugLog(`Test audio error: ${e}`, 'error');
-		}
-	});
-	
-	// HTML5 Audio test button
-	const testHtml5Btn = document.getElementById('test-html5-btn');
-	testHtml5Btn.classList.add('show');
-	
-	testHtml5Btn.addEventListener('click', () => {
-		debugLog('=== HTML5 AUDIO TEST ===', 'info');
-		debugLog('Trying to play a simple tone with <audio> element', 'info');
-		
-		// Generate a simple beep using data URI
-		const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-		const duration = 1;
-		const frequency = 440;
-		const sampleRate = audioContext.sampleRate;
-		const numSamples = duration * sampleRate;
-		const buffer = audioContext.createBuffer(1, numSamples, sampleRate);
-		const channelData = buffer.getChannelData(0);
-		
-		// Generate sine wave
-		for (let i = 0; i < numSamples; i++) {
-			channelData[i] = Math.sin(2 * Math.PI * frequency * i / sampleRate) * 0.3;
-		}
-		
-		// Play using AudioBufferSourceNode
-		if (audioContext.state === 'suspended') {
-			audioContext.resume().then(() => {
-				debugLog(`HTML5 context state: ${audioContext.state}`, 'info');
-				playBuffer();
-			});
-		} else {
-			debugLog(`HTML5 context state: ${audioContext.state}`, 'info');
-			playBuffer();
-		}
-		
-		function playBuffer() {
-			const source = audioContext.createBufferSource();
-			source.buffer = buffer;
-			source.connect(audioContext.destination);
-			source.start(0);
-			source.onended = () => {
-				debugLog('=== HTML5 BEEP COMPLETE - HEARD IT? ===', 'info');
-			};
-			debugLog('Playing HTML5 buffer beep...', 'info');
-		}
-	});
-	
-	// Real HTML5 <audio> element test
-	const testRealAudioBtn = document.getElementById('test-real-audio-btn');
-	const audioElement = document.getElementById('test-audio-element');
-	testRealAudioBtn.classList.add('show');
-	
-	// Generate a simple WAV file data URL
-	const sampleRate = 44100;
-	const duration = 1;
-	const frequency = 440;
-	const numSamples = sampleRate * duration;
-	const wavData = new Int16Array(numSamples);
-	
-	for (let i = 0; i < numSamples; i++) {
-		wavData[i] = Math.sin(2 * Math.PI * frequency * i / sampleRate) * 0x7FFF * 0.5;
-	}
-	
-	// Create WAV file
 	const wavBytes = new Uint8Array(44 + wavData.length * 2);
 	const view = new DataView(wavBytes.buffer);
 	
@@ -479,83 +176,26 @@ if (isIOS) {
 	
 	const blob = new Blob([wavBytes], { type: 'audio/wav' });
 	const audioUrl = URL.createObjectURL(blob);
-	audioElement.src = audioUrl;
-	
-	testRealAudioBtn.addEventListener('click', () => {
-		debugLog('=== PLAYING <audio> ELEMENT ===', 'info');
-		audioElement.play().then(() => {
-			debugLog('Audio element playing...', 'info');
-		}).catch(err => {
-			debugLog(`Audio element error: ${err}`, 'error');
-		});
-		
-		audioElement.onended = () => {
-			debugLog('=== AUDIO ELEMENT FINISHED - HEARD IT? ===', 'info');
-		};
-	});
-	
-	// Capture errors
-	window.addEventListener('error', (e) => {
-		debugLog(`ERROR: ${e.message}`, 'error');
-	});
-	
-	window.addEventListener('unhandledrejection', (e) => {
-		debugLog(`UNHANDLED PROMISE: ${e.reason}`, 'error');
-	});
+	document.getElementById('ios-audio-unlock').src = audioUrl;
 }
 
 // iOS AudioContext fix: Patch AudioContext constructor to ensure proper initialization
 (function() {
 	if (isIOS && typeof AudioContext !== 'undefined') {
-		debugLog('Applying AudioContext patch...', 'info');
 		const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
 		let hasUserInteracted = false;
 		let pendingContexts = [];
 		
 		// Patched AudioContext that handles iOS requirements
 		const PatchedAudioContext = function() {
-			debugLog('Creating AudioContext...', 'info');
 			const ctx = new OriginalAudioContext();
-			debugLog(`AudioContext created, state: ${ctx.state}, sampleRate: ${ctx.sampleRate}`, 'info');
 			
 			// Store reference to try resuming later
 			pendingContexts.push(ctx);
 			
-			// Monitor state changes
-			ctx.onstatechange = () => {
-				debugLog(`AudioContext state changed to: ${ctx.state}`, 'info');
-			};
-			
-			// Log when audio nodes are created
-			const originalCreateGain = ctx.createGain.bind(ctx);
-			ctx.createGain = function() {
-				const node = originalCreateGain();
-				debugLog(`Created GainNode, gain value: ${node.gain.value}`, 'info');
-				return node;
-			};
-			
-			// Patch audioWorklet.addModule to log loading
-			if (ctx.audioWorklet) {
-				const originalAddModule = ctx.audioWorklet.addModule.bind(ctx.audioWorklet);
-				ctx.audioWorklet.addModule = function(moduleURL, options) {
-					debugLog(`Loading AudioWorklet: ${moduleURL}`, 'info');
-					return originalAddModule(moduleURL, options).then(() => {
-						debugLog(`AudioWorklet loaded: ${moduleURL}`, 'info');
-					}).catch((err) => {
-						debugLog(`AudioWorklet FAILED: ${moduleURL} - ${err}`, 'error');
-						throw err;
-					});
-				};
-			}
-			
 			// If already interacted, try to resume immediately
 			if (hasUserInteracted && ctx.state === 'suspended') {
-				debugLog('Attempting immediate resume...', 'info');
-				ctx.resume().then(() => {
-					debugLog(`AudioContext resumed immediately, state: ${ctx.state}`, 'info');
-				}).catch(err => {
-					debugLog(`Failed to resume: ${err}`, 'error');
-				});
+				ctx.resume().catch(() => {});
 			}
 			
 			return ctx;
@@ -577,20 +217,12 @@ if (isIOS) {
 		
 		// Function to resume all pending contexts
 		const resumeAllContexts = () => {
-			debugLog(`User interaction! Resuming ${pendingContexts.length} contexts...`, 'info');
 			hasUserInteracted = true;
 			
-			pendingContexts.forEach((ctx, index) => {
-				debugLog(`Context ${index} state: ${ctx.state}`, 'info');
+			pendingContexts.forEach((ctx) => {
 				if (ctx.state !== 'closed') {
 					if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
-						ctx.resume().then(() => {
-							debugLog(`Context ${index} resumed! New state: ${ctx.state}`, 'info');
-						}).catch(err => {
-							debugLog(`Context ${index} resume failed: ${err}`, 'error');
-						});
-					} else {
-						debugLog(`Context ${index} already ${ctx.state}`, 'info');
+						ctx.resume().catch(() => {});
 					}
 				}
 			});
@@ -611,10 +243,6 @@ if (isIOS) {
 		events.forEach(event => {
 			document.addEventListener(event, handler, { passive: true });
 		});
-		
-		debugLog('AudioContext patch applied successfully', 'info');
-	} else if (isIOS) {
-		debugLog('WARNING: AudioContext not available!', 'error');
 	}
 })();
 
@@ -707,10 +335,6 @@ const engine = new Engine(GODOT_CONFIG);
 	} else {
 		setStatusMode('progress');
 		
-		// iOS-specific: Wait for user interaction before starting engine
-		const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-		              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-		
 		const startEngine = () => {
 			engine.startGame({
 				'onProgress': function (current, total) {
@@ -728,20 +352,31 @@ const engine = new Engine(GODOT_CONFIG);
 		};
 		
 		if (isIOS) {
-			// On iOS, wait for first user interaction
-			debugLog('Waiting for user tap to start engine...', 'info');
-			const iosNotice = document.getElementById('ios-start-notice');
-			if (iosNotice) {
-				iosNotice.style.display = 'block';
+			// On iOS, show prompt and wait for first user interaction
+			const startPrompt = document.getElementById('ios-start-prompt');
+			if (startPrompt) {
+				startPrompt.style.display = 'block';
 			}
 			
 			const startEvents = ['touchstart', 'touchend', 'click'];
 			const startHandler = () => {
-				debugLog('User tapped! Starting engine...', 'info');
-				if (iosNotice) {
-					iosNotice.style.display = 'none';
+				// Hide prompt
+				if (startPrompt) {
+					startPrompt.style.display = 'none';
 				}
+				
+				// Play silent audio to unlock iOS audio subsystem
+				const unlockAudio = document.getElementById('ios-audio-unlock');
+				if (unlockAudio) {
+					unlockAudio.play().catch(() => {
+						// Silent fail - it's just an unlock attempt
+					});
+				}
+				
+				// Start engine
 				startEngine();
+				
+				// Remove event listeners
 				startEvents.forEach(event => {
 					document.removeEventListener(event, startHandler);
 				});
@@ -755,6 +390,6 @@ const engine = new Engine(GODOT_CONFIG);
 		}
 	}
 }());
-		</script>
+	</script>
 	</body>
 </html>
