@@ -274,9 +274,18 @@ if (!isIOS) {
 		const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
 		let contextCount = 0;
 		
-		const DebugAudioContext = function() {
+		const DebugAudioContext = function(options) {
 			contextCount++;
-			const ctx = new OriginalAudioContext();
+			
+			// Force low latency settings
+			const lowLatencyOptions = {
+				latencyHint: 'interactive', // Request lowest latency
+				sampleRate: 48000, // Standard rate
+				...options // Preserve any options Godot passes
+			};
+			
+			console.log('[AudioContext] Creating with options:', JSON.stringify(lowLatencyOptions));
+			const ctx = new OriginalAudioContext(lowLatencyOptions);
 			const ctxId = contextCount;
 			
 			console.log(`[AudioContext #${ctxId}] Created`);
@@ -284,6 +293,16 @@ if (!isIOS) {
 			console.log(`[AudioContext #${ctxId}] Sample Rate: ${ctx.sampleRate}`);
 			console.log(`[AudioContext #${ctxId}] Base Latency: ${ctx.baseLatency || 'N/A'}`);
 			console.log(`[AudioContext #${ctxId}] Output Latency: ${ctx.outputLatency || 'N/A'}`);
+			
+			// Latency assessment
+			const latencyMs = (ctx.baseLatency || 0) * 1000;
+			if (latencyMs > 100) {
+				console.warn(`[AudioContext #${ctxId}] ⚠️ HIGH LATENCY: ${latencyMs.toFixed(1)}ms - Audio will lag!`);
+			} else if (latencyMs > 50) {
+				console.warn(`[AudioContext #${ctxId}] ⚠️ MODERATE LATENCY: ${latencyMs.toFixed(1)}ms`);
+			} else {
+				console.log(`[AudioContext #${ctxId}] ✅ GOOD LATENCY: ${latencyMs.toFixed(1)}ms`);
+			}
 			
 			// Monitor state changes
 			ctx.addEventListener('statechange', () => {
