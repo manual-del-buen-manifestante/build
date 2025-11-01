@@ -107,6 +107,59 @@ body {
 	cursor: pointer;
 	user-select: none;
 }
+
+#debug-console {
+	position: fixed;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	max-height: 150px;
+	background-color: rgba(0, 0, 0, 0.95);
+	color: #0f0;
+	font-family: monospace;
+	font-size: 11px;
+	padding: 10px;
+	overflow-y: auto;
+	z-index: 99999;
+	border-top: 2px solid #0f0;
+	display: none;
+}
+
+#debug-console.show {
+	display: block;
+}
+
+#debug-console .log {
+	color: #0ff;
+	margin: 1px 0;
+}
+
+#debug-console .warn {
+	color: #fa0;
+	margin: 1px 0;
+}
+
+#debug-console .error {
+	color: #f00;
+	margin: 1px 0;
+	font-weight: bold;
+}
+
+#console-toggle {
+	position: fixed;
+	bottom: 10px;
+	right: 10px;
+	background-color: rgba(0, 255, 0, 0.8);
+	color: black;
+	border: 2px solid #0f0;
+	padding: 8px 15px;
+	font-size: 14px;
+	font-weight: bold;
+	z-index: 100000;
+	cursor: pointer;
+	border-radius: 5px;
+	box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+}
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
@@ -131,14 +184,86 @@ body {
 	<!-- iOS start prompt -->
 	<div id="ios-start-prompt">Tap para activar el audio</div>
 	
+	<!-- Debug console -->
+	<button id="console-toggle">📱 Console</button>
+	<div id="debug-console"></div>
+	
 	<!-- Silent audio element to unlock iOS audio -->
 	<audio id="ios-audio-unlock" preload="auto" style="display:none;"></audio>
 
 	<script src="index.js"></script>
 	<script>
+// Virtual Console for mobile debugging
+(function() {
+	const debugConsole = document.getElementById('debug-console');
+	const consoleToggle = document.getElementById('console-toggle');
+	let consoleVisible = false;
+	let lineCount = 0;
+	const MAX_LINES = 100;
+	
+	// Save original console methods
+	const originalLog = console.log;
+	const originalWarn = console.warn;
+	const originalError = console.error;
+	
+	function addLine(message, type) {
+		const time = new Date().toLocaleTimeString();
+		const line = document.createElement('div');
+		line.className = type;
+		line.textContent = `[${time}] ${message}`;
+		debugConsole.appendChild(line);
+		
+		lineCount++;
+		if (lineCount > MAX_LINES) {
+			debugConsole.removeChild(debugConsole.firstChild);
+		}
+		debugConsole.scrollTop = debugConsole.scrollHeight;
+	}
+	
+	// Override console methods
+	console.log = function(...args) {
+		const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+		addLine(msg, 'log');
+		originalLog.apply(console, args);
+	};
+	
+	console.warn = function(...args) {
+		const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+		addLine(msg, 'warn');
+		originalWarn.apply(console, args);
+	};
+	
+	console.error = function(...args) {
+		const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+		addLine(msg, 'error');
+		originalError.apply(console, args);
+	};
+	
+	// Toggle console
+	consoleToggle.addEventListener('click', () => {
+		consoleVisible = !consoleVisible;
+		debugConsole.classList.toggle('show', consoleVisible);
+		consoleToggle.textContent = consoleVisible ? '❌ Close' : '📱 Console';
+	});
+	
+	// Capture errors
+	window.addEventListener('error', (e) => {
+		addLine(`ERROR: ${e.message}`, 'error');
+	});
+	
+	window.addEventListener('unhandledrejection', (e) => {
+		addLine(`PROMISE REJECTED: ${e.reason}`, 'error');
+	});
+	
+	// Initial log
+	console.log('Virtual console initialized');
+})();
+
 // Detect iOS
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+console.log('Device:', isIOS ? 'iOS' : 'Other', '| UA:', navigator.userAgent.substring(0, 50) + '...');
 
 // Create a silent audio file for iOS unlock
 if (isIOS) {
