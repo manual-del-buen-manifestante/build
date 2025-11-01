@@ -265,6 +265,94 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 
 console.log('Device:', isIOS ? 'iOS' : 'Other', '| UA:', navigator.userAgent.substring(0, 50) + '...');
 
+// Audio debugging for Android
+if (!isIOS) {
+	console.log('Android audio debugging enabled');
+	
+	// Monitor AudioContext creation
+	if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
+		const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
+		let contextCount = 0;
+		
+		const DebugAudioContext = function() {
+			contextCount++;
+			const ctx = new OriginalAudioContext();
+			const ctxId = contextCount;
+			
+			console.log(`[AudioContext #${ctxId}] Created`);
+			console.log(`[AudioContext #${ctxId}] State: ${ctx.state}`);
+			console.log(`[AudioContext #${ctxId}] Sample Rate: ${ctx.sampleRate}`);
+			console.log(`[AudioContext #${ctxId}] Base Latency: ${ctx.baseLatency || 'N/A'}`);
+			console.log(`[AudioContext #${ctxId}] Output Latency: ${ctx.outputLatency || 'N/A'}`);
+			
+			// Monitor state changes
+			ctx.addEventListener('statechange', () => {
+				console.log(`[AudioContext #${ctxId}] State changed to: ${ctx.state}`);
+			});
+			
+			// Track timing
+			const originalResume = ctx.resume.bind(ctx);
+			ctx.resume = function() {
+				console.log(`[AudioContext #${ctxId}] resume() called`);
+				return originalResume().then(() => {
+					console.log(`[AudioContext #${ctxId}] resumed successfully, state: ${ctx.state}`);
+				});
+			};
+			
+			const originalSuspend = ctx.suspend.bind(ctx);
+			ctx.suspend = function() {
+				console.log(`[AudioContext #${ctxId}] suspend() called`);
+				return originalSuspend();
+			};
+			
+			return ctx;
+		};
+		
+		// Copy prototype and properties
+		DebugAudioContext.prototype = OriginalAudioContext.prototype;
+		for (const prop in OriginalAudioContext) {
+			if (OriginalAudioContext.hasOwnProperty(prop)) {
+				DebugAudioContext[prop] = OriginalAudioContext[prop];
+			}
+		}
+		
+		window.AudioContext = DebugAudioContext;
+		if (window.webkitAudioContext) {
+			window.webkitAudioContext = DebugAudioContext;
+		}
+		
+		console.log('AudioContext monitoring installed');
+	}
+	
+	// Monitor AudioWorklet loading
+	const originalAddModule = AudioWorkletNode?.prototype?.constructor;
+	if (originalAddModule) {
+		console.log('AudioWorklet support detected');
+	}
+	
+	// Monitor user interactions for audio unlock
+	let firstInteraction = false;
+	const interactionEvents = ['touchstart', 'touchend', 'click', 'keydown'];
+	const interactionHandler = (e) => {
+		if (!firstInteraction) {
+			firstInteraction = true;
+			console.log(`[User Interaction] First interaction detected: ${e.type}`);
+			
+			// Check if any AudioContext exists
+			setTimeout(() => {
+				console.log('[User Interaction] Checking audio state after interaction...');
+			}, 100);
+		}
+	};
+	
+	interactionEvents.forEach(event => {
+		document.addEventListener(event, interactionHandler, { once: false, passive: true });
+	});
+	
+	// Performance monitoring
+	console.log('[Performance] Page load time:', performance.now().toFixed(2), 'ms');
+}
+
 // Create a silent audio file for iOS unlock
 if (isIOS) {
 	// Create a tiny silent WAV file (0.1 seconds of silence)
@@ -461,6 +549,9 @@ const engine = new Engine({"args":[],"canvasResizePolicy":2,"ensureCrossOriginIs
 		setStatusMode('progress');
 		
 		const startEngine = () => {
+			const engineStartTime = performance.now();
+			console.log('[Engine] Starting engine at', engineStartTime.toFixed(2), 'ms');
+			
 			engine.startGame({
 				'onProgress': function (current, total) {
 					if (current > 0 && total > 0) {
@@ -472,6 +563,9 @@ const engine = new Engine({"args":[],"canvasResizePolicy":2,"ensureCrossOriginIs
 					}
 				},
 			}).then(() => {
+				const engineReadyTime = performance.now();
+				console.log('[Engine] Ready at', engineReadyTime.toFixed(2), 'ms');
+				console.log('[Engine] Start duration:', (engineReadyTime - engineStartTime).toFixed(2), 'ms');
 				setStatusMode('hidden');
 			}, displayFailureNotice);
 		};
@@ -511,6 +605,7 @@ const engine = new Engine({"args":[],"canvasResizePolicy":2,"ensureCrossOriginIs
 			});
 		} else {
 			// Non-iOS: Start immediately
+			console.log('[Engine] Non-iOS device - starting immediately');
 			startEngine();
 		}
 	}
