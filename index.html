@@ -89,81 +89,9 @@ body {
 	text-align: center;
 	z-index: 1;
 }
-
-#ios-start-prompt {
-	position: fixed;
-	top: 50%;
-	left: 50%;
-	transform: translate(-50%, -50%);
-	background-color: rgba(0, 0, 0, 0.85);
-	color: white;
-	padding: 30px 50px;
-	border-radius: 10px;
-	font-family: 'Noto Sans', 'Droid Sans', Arial, sans-serif;
-	font-size: 24px;
-	text-align: center;
-	display: none;
-	z-index: 10000;
-	cursor: pointer;
-	user-select: none;
-}
-
-#debug-console {
-	position: fixed;
-	bottom: 0;
-	left: 0;
-	right: 0;
-	max-height: 150px;
-	background-color: rgba(0, 0, 0, 0.95);
-	color: #0f0;
-	font-family: monospace;
-	font-size: 11px;
-	padding: 10px;
-	overflow-y: auto;
-	z-index: 99999;
-	border-top: 2px solid #0f0;
-	display: none;
-}
-
-#debug-console.show {
-	display: block;
-}
-
-#debug-console .log {
-	color: #0ff;
-	margin: 1px 0;
-}
-
-#debug-console .warn {
-	color: #fa0;
-	margin: 1px 0;
-}
-
-#debug-console .error {
-	color: #f00;
-	margin: 1px 0;
-	font-weight: bold;
-}
-
-#console-toggle {
-	position: fixed;
-	bottom: 10px;
-	right: 10px;
-	background-color: rgba(0, 255, 0, 0.8);
-	color: black;
-	border: 2px solid #0f0;
-	padding: 8px 15px;
-	font-size: 14px;
-	font-weight: bold;
-	z-index: 100000;
-	cursor: pointer;
-	border-radius: 5px;
-	box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-}
 		</style>
 		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
 <link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
-
 
 	</head>
 	<body>
@@ -175,257 +103,17 @@ body {
 			Your browser does not support JavaScript.
 		</noscript>
 
-	<div id="status">
-		<img id="status-splash" class="show-image--true fullsize--false use-filter--true" src="index.png" alt="">
-		<progress id="status-progress"></progress>
-		<div id="status-notice"></div>
-	</div>
-	
-	<!-- iOS start prompt -->
-	<div id="ios-start-prompt">Tap para activar el audio</div>
-	
-	<!-- Debug console -->
-	<button id="console-toggle">📱 Console</button>
-	<div id="debug-console"></div>
-	
-	<!-- Silent audio element to unlock iOS audio -->
-	<audio id="ios-audio-unlock" preload="auto" style="display:none;"></audio>
+		<div id="status">
+			<img id="status-splash" class="show-image--true fullsize--false use-filter--true" src="index.png" alt="">
+			<progress id="status-progress"></progress>
+			<div id="status-notice"></div>
+		</div>
 
-	<script src="index.js"></script>
-	<script>
-// Virtual Console for mobile debugging
-(function() {
-	const debugConsole = document.getElementById('debug-console');
-	const consoleToggle = document.getElementById('console-toggle');
-	let consoleVisible = false;
-	let lineCount = 0;
-	const MAX_LINES = 100;
-	
-	// Save original console methods
-	const originalLog = console.log;
-	const originalWarn = console.warn;
-	const originalError = console.error;
-	
-	function addLine(message, type) {
-		const time = new Date().toLocaleTimeString();
-		const line = document.createElement('div');
-		line.className = type;
-		line.textContent = `[${time}] ${message}`;
-		debugConsole.appendChild(line);
-		
-		lineCount++;
-		if (lineCount > MAX_LINES) {
-			debugConsole.removeChild(debugConsole.firstChild);
-		}
-		debugConsole.scrollTop = debugConsole.scrollHeight;
-	}
-	
-	// Override console methods
-	console.log = function(...args) {
-		const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-		addLine(msg, 'log');
-		originalLog.apply(console, args);
-	};
-	
-	console.warn = function(...args) {
-		const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-		addLine(msg, 'warn');
-		originalWarn.apply(console, args);
-	};
-	
-	console.error = function(...args) {
-		const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-		addLine(msg, 'error');
-		originalError.apply(console, args);
-	};
-	
-	// Toggle console
-	consoleToggle.addEventListener('click', () => {
-		consoleVisible = !consoleVisible;
-		debugConsole.classList.toggle('show', consoleVisible);
-		consoleToggle.textContent = consoleVisible ? '❌ Close' : '📱 Console';
-	});
-	
-	// Capture errors
-	window.addEventListener('error', (e) => {
-		addLine(`ERROR: ${e.message}`, 'error');
-	});
-	
-	window.addEventListener('unhandledrejection', (e) => {
-		addLine(`PROMISE REJECTED: ${e.reason}`, 'error');
-	});
-	
-	// Initial log
-	console.log('Virtual console initialized');
-})();
-
-// Detect iOS
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-console.log('Device:', isIOS ? 'iOS' : 'Android/Other', '| UA:', navigator.userAgent.substring(0, 50) + '...');
-
-// Android audio latency fix
-if (!isIOS) {
-	console.log('Android audio debugging enabled');
-	
-	if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
-		const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
-		
-		const LowLatencyAudioContext = function(options) {
-			// Force low latency settings
-			const lowLatencyOptions = {
-				latencyHint: 'interactive', // Request lowest latency
-				sampleRate: 48000,
-				...options
-			};
-			
-			console.log('[AudioContext] Creating with low-latency options');
-			const ctx = new OriginalAudioContext(lowLatencyOptions);
-			
-			console.log('[AudioContext] State:', ctx.state);
-			console.log('[AudioContext] Sample Rate:', ctx.sampleRate);
-			
-			const latencyMs = (ctx.baseLatency || 0) * 1000;
-			console.log('[AudioContext] Base Latency:', ctx.baseLatency || 'N/A', `(${latencyMs.toFixed(1)}ms)`);
-			
-			if (latencyMs > 100) {
-				console.warn('⚠️ HIGH LATENCY:', latencyMs.toFixed(1) + 'ms - Audio may lag!');
-			} else if (latencyMs > 50) {
-				console.warn('⚠️ MODERATE LATENCY:', latencyMs.toFixed(1) + 'ms');
-			} else {
-				console.log('✅ GOOD LATENCY:', latencyMs.toFixed(1) + 'ms');
-			}
-			
-			return ctx;
-		};
-		
-		// Copy prototype and properties
-		LowLatencyAudioContext.prototype = OriginalAudioContext.prototype;
-		for (const prop in OriginalAudioContext) {
-			if (OriginalAudioContext.hasOwnProperty(prop)) {
-				LowLatencyAudioContext[prop] = OriginalAudioContext[prop];
-			}
-		}
-		
-		window.AudioContext = LowLatencyAudioContext;
-		if (window.webkitAudioContext) {
-			window.webkitAudioContext = LowLatencyAudioContext;
-		}
-		
-		console.log('Low-latency AudioContext patch installed');
-	}
-}
-
-// Create a silent audio file for iOS unlock
-if (isIOS) {
-	// Create a tiny silent WAV file (0.1 seconds of silence)
-	const sampleRate = 22050;
-	const numSamples = Math.floor(sampleRate * 0.1);
-	const wavData = new Int16Array(numSamples); // All zeros = silence
-	
-	const wavBytes = new Uint8Array(44 + wavData.length * 2);
-	const view = new DataView(wavBytes.buffer);
-	
-	// WAV header
-	const writeString = (offset, string) => {
-		for (let i = 0; i < string.length; i++) {
-			view.setUint8(offset + i, string.charCodeAt(i));
-		}
-	};
-	
-	writeString(0, 'RIFF');
-	view.setUint32(4, 36 + wavData.length * 2, true);
-	writeString(8, 'WAVE');
-	writeString(12, 'fmt ');
-	view.setUint32(16, 16, true);
-	view.setUint16(20, 1, true);
-	view.setUint16(22, 1, true);
-	view.setUint32(24, sampleRate, true);
-	view.setUint32(28, sampleRate * 2, true);
-	view.setUint16(32, 2, true);
-	view.setUint16(34, 16, true);
-	writeString(36, 'data');
-	view.setUint32(40, wavData.length * 2, true);
-	
-	for (let i = 0; i < wavData.length; i++) {
-		view.setInt16(44 + i * 2, wavData[i], true);
-	}
-	
-	const blob = new Blob([wavBytes], { type: 'audio/wav' });
-	const audioUrl = URL.createObjectURL(blob);
-	document.getElementById('ios-audio-unlock').src = audioUrl;
-}
-
-// iOS AudioContext fix: Patch AudioContext constructor to ensure proper initialization
-(function() {
-	if (isIOS && typeof AudioContext !== 'undefined') {
-		const OriginalAudioContext = window.AudioContext || window.webkitAudioContext;
-		let hasUserInteracted = false;
-		let pendingContexts = [];
-		
-		// Patched AudioContext that handles iOS requirements
-		const PatchedAudioContext = function() {
-			const ctx = new OriginalAudioContext();
-			
-			// Store reference to try resuming later
-			pendingContexts.push(ctx);
-			
-			// If already interacted, try to resume immediately
-			if (hasUserInteracted && ctx.state === 'suspended') {
-				ctx.resume().catch(() => {});
-			}
-			
-			return ctx;
-		};
-		
-		// Copy prototype and static properties
-		PatchedAudioContext.prototype = OriginalAudioContext.prototype;
-		for (const prop in OriginalAudioContext) {
-			if (OriginalAudioContext.hasOwnProperty(prop)) {
-				PatchedAudioContext[prop] = OriginalAudioContext[prop];
-			}
-		}
-		
-		// Replace global AudioContext
-		window.AudioContext = PatchedAudioContext;
-		if (window.webkitAudioContext) {
-			window.webkitAudioContext = PatchedAudioContext;
-		}
-		
-		// Function to resume all pending contexts
-		const resumeAllContexts = () => {
-			hasUserInteracted = true;
-			
-			pendingContexts.forEach((ctx) => {
-				if (ctx.state !== 'closed') {
-					if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
-						ctx.resume().catch(() => {});
-					}
-				}
-			});
-		};
-		
-		// Add interaction listeners
-		const events = ['touchstart', 'touchend', 'click'];
-		const handler = () => {
-			resumeAllContexts();
-			// Keep handlers for a bit to catch delayed context creation
-			setTimeout(() => {
-				events.forEach(event => {
-					document.removeEventListener(event, handler);
-				});
-			}, 3000);
-		};
-		
-		events.forEach(event => {
-			document.addEventListener(event, handler, { passive: true });
-		});
-	}
-})();
-
+		<script src="index.js"></script>
+		<script>
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":50006288,"index.wasm":43699190},"focusCanvas":true,"gdextensionLibs":[]};
 const GODOT_THREADS_ENABLED = false;
-const engine = new Engine({"args":[],"canvasResizePolicy":2,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":50006288,"index.wasm":43699190},"focusCanvas":true,"gdextensionLibs":[]});
+const engine = new Engine(GODOT_CONFIG);
 
 (function () {
 	const statusOverlay = document.getElementById('status');
@@ -511,63 +199,22 @@ const engine = new Engine({"args":[],"canvasResizePolicy":2,"ensureCrossOriginIs
 		}
 	} else {
 		setStatusMode('progress');
-		
-		const startEngine = () => {
-			engine.startGame({
-				'onProgress': function (current, total) {
-					if (current > 0 && total > 0) {
-						statusProgress.value = current;
-						statusProgress.max = total;
-					} else {
-						statusProgress.removeAttribute('value');
-						statusProgress.removeAttribute('max');
-					}
-				},
-			}).then(() => {
-				setStatusMode('hidden');
-			}, displayFailureNotice);
-		};
-		
-		if (isIOS) {
-			// On iOS, show prompt and wait for first user interaction
-			const startPrompt = document.getElementById('ios-start-prompt');
-			if (startPrompt) {
-				startPrompt.style.display = 'block';
-			}
-			
-			const startEvents = ['touchstart', 'touchend', 'click'];
-			const startHandler = () => {
-				// Hide prompt
-				if (startPrompt) {
-					startPrompt.style.display = 'none';
+		engine.startGame({
+			'onProgress': function (current, total) {
+				if (current > 0 && total > 0) {
+					statusProgress.value = current;
+					statusProgress.max = total;
+				} else {
+					statusProgress.removeAttribute('value');
+					statusProgress.removeAttribute('max');
 				}
-				
-				// Play silent audio to unlock iOS audio subsystem
-				const unlockAudio = document.getElementById('ios-audio-unlock');
-				if (unlockAudio) {
-					unlockAudio.play().catch(() => {
-						// Silent fail - it's just an unlock attempt
-					});
-				}
-				
-				// Start engine
-				startEngine();
-				
-				// Remove event listeners
-				startEvents.forEach(event => {
-					document.removeEventListener(event, startHandler);
-				});
-			};
-			startEvents.forEach(event => {
-				document.addEventListener(event, startHandler, { once: true, passive: true });
-			});
-		} else {
-			// Non-iOS: Start immediately
-			startEngine();
-		}
+			},
+		}).then(() => {
+			setStatusMode('hidden');
+		}, displayFailureNotice);
 	}
 }());
-	</script>
+		</script>
 	</body>
 </html>
 
